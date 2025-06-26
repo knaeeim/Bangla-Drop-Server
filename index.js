@@ -2,13 +2,14 @@ const express = require("express");
 const cors = require("cors");
 const app = express();
 const dotenv = require("dotenv");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const PORT = process.env.PORT || 5000;
 
 // Middleware setup
 app.use(cors());
 app.use(express.json());
 dotenv.config();
+const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_KEY);
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.plgxbak.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -29,20 +30,20 @@ async function run() {
         const db = client.db("banglaDrop");
         const parcelCollection = db.collection("parcels");
 
-        app.get("/parcels", async (req, res) => {
-            try {
-                const result = await parcelCollection.find().toArray();
-                res.send(result);
-            } catch (error) {
-                console.log(error);
-            }
-        });
+        // app.get("/parcels", async (req, res) => {
+        //     try {
+        //         const result = await parcelCollection.find().toArray();
+        //         res.send(result);
+        //     } catch (error) {
+        //         console.log(error);
+        //     }
+        // });
 
         app.get("/parcels", async (req, res) => {
             try {
                 const userEmail = req.query.email;
 
-                const query = userEmail ? { createdBy: userEmail } : {};
+                const query = userEmail ? { created_by: userEmail } : {};
 
                 const option = {
                     sort: { createdAt: -1 },
@@ -59,6 +60,18 @@ async function run() {
             }
         });
 
+        // get a single parcel by id
+        app.get("/parcel/:id", async (req, res) => {
+            try {
+                const id = req.params.id;
+                const query = { _id : new ObjectId(id) };
+                const result = await parcelCollection.findOne(query);
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ message: 'Failed to get parcel' });
+            }
+        })
+
         // post parcel data to database
         app.post("/parcels", async (req, res) => {
             try {
@@ -70,6 +83,24 @@ async function run() {
                 res.status(500).send("Internal Server Error");
             }
         });
+
+        app.post("/create-payment-intent", async(req, res) => {
+            console.log("Received request to create payment intent");
+            const amountInCents = req.body.amountInCents;
+            try {
+                const paymentIntent = await stripe.paymentIntents.create({
+                    amount: amountInCents,
+                    currency: 'usd',
+                    payment_method_types: ['card'],
+                })
+
+                res.json({
+                    clientSecret: paymentIntent.client_secret
+                })
+            } catch (error) {
+                res.status(500).send({ message: 'Failed to create payment intent' });
+            }
+        })
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
